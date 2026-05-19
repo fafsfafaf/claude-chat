@@ -10,43 +10,62 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <span class="dot"></span>
-      <span class="name">claude-chat</span>
+  <aside id="sidebar">
+    <button id="new-chat" class="primary block">＋  New chat</button>
+    <div class="chat-list" id="chat-list"></div>
+    <div class="sidebar-footer">
+      <button id="settings-btn" class="ghost block" title="Settings">⚙  Settings</button>
     </div>
-    <div class="actions">
-      <select id="model">
-        <option value="claude-opus-4-7">Opus 4.7</option>
-        <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-        <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
-      </select>
-      <button id="settings-btn" title="Settings">⚙</button>
-      <button id="clear-btn" title="Clear chat">⌫</button>
-    </div>
-  </header>
+  </aside>
 
-  <main id="messages">
-    <div class="welcome" id="welcome">
-      <h1>Talk to Claude</h1>
-      <p>Paste your OAuth tokens once. Stored in your browser. Server only proxies.</p>
-      <button id="open-settings" class="primary">Add tokens to start</button>
-    </div>
-  </main>
+  <div class="content">
+    <header>
+      <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar">☰</button>
+      <div class="brand">
+        <span class="dot"></span>
+        <span class="name" id="chat-title">claude-chat</span>
+      </div>
+      <div class="actions">
+        <select id="model">
+          <option value="claude-opus-4-7">Opus 4.7</option>
+          <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+          <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+        </select>
+        <button id="rename-chat-btn" class="icon-btn" title="Rename">✎</button>
+      </div>
+    </header>
 
-  <form id="composer">
-    <div class="input-wrap">
-      <textarea id="input" rows="1" placeholder="Message Claude…" disabled></textarea>
-      <button type="submit" id="send" disabled>↑</button>
-    </div>
-    <div class="hint">Enter to send · Shift+Enter for newline</div>
-  </form>
+    <main id="messages">
+      <div class="welcome" id="welcome">
+        <h1>Talk to Claude</h1>
+        <p>Paste your OAuth tokens once. Stored in your browser. Server only proxies.</p>
+        <button id="open-settings" class="primary">Add tokens to start</button>
+      </div>
+    </main>
+
+    <form id="composer">
+      <div id="attachments" class="attachments"></div>
+      <div class="input-wrap">
+        <label for="file-input" class="attach-btn" title="Attach image or file">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </label>
+        <input type="file" id="file-input" multiple
+               accept="image/*,application/pdf,text/*,.md,.json,.csv,.log,.py,.js,.ts,.html,.css,.sh,.yml,.yaml,.toml,.xml" hidden />
+        <textarea id="input" rows="1" placeholder="Message Claude…" disabled></textarea>
+        <button type="submit" id="send" disabled title="Send">↑</button>
+      </div>
+      <div class="hint">Enter to send · Shift+Enter for newline · drop or paste files/images</div>
+    </form>
+  </div>
 
   <!-- Settings modal -->
   <div class="modal" id="settings-modal" hidden>
     <div class="modal-card">
       <h2>Settings</h2>
-      <p class="muted">Tokens are stored in your browser's localStorage. They are sent to this server only to forward to api.anthropic.com.</p>
+      <p class="muted">Tokens are stored in your browser's localStorage. Sent to this server only to forward to api.anthropic.com.</p>
 
       <label>Access token <span class="muted">(sk-ant-oat01-…)</span></label>
       <input type="password" id="access-token" autocomplete="off" spellcheck="false" />
@@ -71,6 +90,11 @@
         <button id="save-btn" class="primary">Save</button>
       </div>
     </div>
+  </div>
+
+  <!-- Drop overlay -->
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div class="drop-card">📎  Drop files to attach</div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
