@@ -2,16 +2,31 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#c87b48" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#18171a" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="claude-chat">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
 <title>claude-chat</title>
 <link rel="stylesheet" href="/static/style.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css">
 </head>
 <body>
+  <!-- Sidebar backdrop for mobile -->
+  <div class="backdrop" id="backdrop" hidden></div>
+
   <aside id="sidebar">
     <button id="new-chat" class="primary block">＋  New chat</button>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Search chats…" autocomplete="off" />
+    </div>
     <div class="chat-list" id="chat-list"></div>
     <div class="sidebar-footer">
       <button id="settings-btn" class="ghost block" title="Settings">⚙  Settings</button>
@@ -20,18 +35,19 @@
 
   <div class="content">
     <header>
-      <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar">☰</button>
+      <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
       <div class="brand">
         <span class="dot"></span>
         <span class="name" id="chat-title">claude-chat</span>
       </div>
       <div class="actions">
-        <select id="model">
+        <select id="model" aria-label="Model">
           <option value="claude-opus-4-7">Opus 4.7</option>
           <option value="claude-sonnet-4-6">Sonnet 4.6</option>
           <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
         </select>
-        <button id="rename-chat-btn" class="icon-btn" title="Rename">✎</button>
+        <button id="rename-chat-btn" class="icon-btn" title="Rename chat" aria-label="Rename">✎</button>
+        <button id="export-btn" class="icon-btn" title="Export as Markdown" aria-label="Export">⬇</button>
       </div>
     </header>
 
@@ -46,7 +62,7 @@
     <form id="composer">
       <div id="attachments" class="attachments"></div>
       <div class="input-wrap">
-        <label for="file-input" class="attach-btn" title="Attach image or file">
+        <label for="file-input" class="attach-btn" title="Attach image or file" aria-label="Attach">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
@@ -55,9 +71,10 @@
         <input type="file" id="file-input" multiple
                accept="image/*,application/pdf,text/*,.md,.json,.csv,.log,.py,.js,.ts,.html,.css,.sh,.yml,.yaml,.toml,.xml" hidden />
         <textarea id="input" rows="1" placeholder="Message Claude…" disabled></textarea>
-        <button type="submit" id="send" disabled title="Send">↑</button>
+        <button type="button" id="stop" class="stop-btn" hidden title="Stop generating" aria-label="Stop">■</button>
+        <button type="submit" id="send" disabled title="Send" aria-label="Send">↑</button>
       </div>
-      <div class="hint">Enter to send · Shift+Enter for newline · drop or paste files/images</div>
+      <div class="hint">Enter to send · Shift+Enter newline · drop/paste files · ⌘K new chat</div>
     </form>
   </div>
 
@@ -97,7 +114,12 @@
     <div class="drop-card">📎  Drop files to attach</div>
   </div>
 
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

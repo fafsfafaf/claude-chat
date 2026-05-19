@@ -1,4 +1,4 @@
-/* claude-chat — minimal client with chat history + file uploads */
+/* claude-chat — minimal client with chat history, file uploads, mobile UI */
 
 const STORE = {
     get: (k, d = '') => localStorage.getItem('cc_' + k) ?? d,
@@ -9,23 +9,20 @@ const STORE = {
 };
 const $ = (s) => document.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
 
-// ---------- State ----------
 const state = {
-    chats: [],          // [{id, title, created, updated, messages: [...]}]
+    chats: [],
     currentId: null,
-    attachments: [],    // [{type:'image'|'document'|'text', name, size, media_type, data}]
+    attachments: [],
     streaming: false,
     abortCtl: null,
+    searchTerm: '',
 };
 
-// Each message: { role:'user'|'assistant', content: <string OR array of blocks> }
-// Block formats match Anthropic API exactly:
-//   {type:'text', text:'...'}
-//   {type:'image', source:{type:'base64', media_type, data}}
-//   {type:'document', source:{type:'base64', media_type, data}}
-
-// ---------- Chat storage ----------
+// ============================================================
+// CHAT STORAGE
+// ============================================================
 function loadChats() {
     state.chats = STORE.getJSON('chats', []) || [];
     state.currentId = STORE.get('current') || null;
@@ -33,41 +30,31 @@ function loadChats() {
         state.currentId = state.chats[0]?.id || null;
     }
 }
-
 function saveChats() {
     STORE.setJSON('chats', state.chats);
     if (state.currentId) STORE.set('current', state.currentId);
 }
-
-function currentChat() {
-    return state.chats.find(c => c.id === state.currentId);
-}
+function currentChat() { return state.chats.find(c => c.id === state.currentId); }
 
 function newChat() {
-    const chat = {
-        id: uid(),
-        title: 'New chat',
-        created: Date.now(),
-        updated: Date.now(),
-        messages: [],
-    };
+    const chat = { id: uid(), title: 'New chat', created: Date.now(), updated: Date.now(), messages: [] };
     state.chats.unshift(chat);
     state.currentId = chat.id;
     saveChats();
     renderSidebar();
     renderMessages();
     updateHeader();
+    closeSidebarOnMobile();
     $('#input').focus();
 }
-
 function switchChat(id) {
     state.currentId = id;
     saveChats();
     renderSidebar();
     renderMessages();
     updateHeader();
+    closeSidebarOnMobile();
 }
-
 function deleteChat(id, ev) {
     ev?.stopPropagation();
     if (!confirm('Delete this chat?')) return;
@@ -78,7 +65,6 @@ function deleteChat(id, ev) {
     renderMessages();
     updateHeader();
 }
-
 function renameChat() {
     const c = currentChat();
     if (!c) return;
@@ -89,17 +75,23 @@ function renameChat() {
     renderSidebar();
     updateHeader();
 }
-
 function autoTitleFromMessage(text) {
     return (text || '').replace(/\s+/g, ' ').trim().slice(0, 48) || 'New chat';
 }
 
-// ---------- Sidebar render ----------
+// ============================================================
+// SIDEBAR RENDER
+// ============================================================
 function renderSidebar() {
     const list = $('#chat-list');
     list.innerHTML = '';
-    state.chats.sort((a, b) => b.updated - a.updated);
-    for (const c of state.chats) {
+    const term = state.searchTerm.toLowerCase();
+    const filtered = state.chats
+        .slice()
+        .sort((a, b) => b.updated - a.updated)
+        .filter(c => !term || c.title.toLowerCase().includes(term) ||
+                     JSON.stringify(c.messages).toLowerCase().includes(term));
+    for (const c of filtered) {
         const el = document.createElement('div');
         el.className = 'chat-item' + (c.id === state.currentId ? ' active' : '');
         el.innerHTML = `<span class="title"></span><button class="del" title="Delete">×</button>`;
@@ -108,13 +100,20 @@ function renderSidebar() {
         el.querySelector('.del').addEventListener('click', (e) => deleteChat(c.id, e));
         list.appendChild(el);
     }
+    if (filtered.length === 0 && term) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color:var(--text-muted);font-size:13px;padding:12px 10px;text-align:center;';
+        empty.textContent = 'No matches';
+        list.appendChild(empty);
+    }
 }
-
 function updateHeader() {
     $('#chat-title').textContent = currentChat()?.title || 'claude-chat';
 }
 
-// ---------- Settings ----------
+// ============================================================
+// SETTINGS
+// ============================================================
 function loadSettings() {
     $('#access-token').value = STORE.get('access');
     $('#refresh-token').value = STORE.get('refresh');
@@ -140,22 +139,25 @@ function saveSettings() {
     STORE.set('model', $('#model').value);
     closeModal();
     refreshUiForTokens();
+    toast('Saved');
 }
 function forgetTokens() {
     if (!confirm('Forget tokens? You will need to paste them again.')) return;
     ['access', 'refresh'].forEach(STORE.del);
     loadSettings();
+    toast('Tokens forgotten');
 }
 function openModal() { $('#settings-modal').hidden = false; }
 function closeModal() { $('#settings-modal').hidden = true; }
 
-// ---------- Message render ----------
+// ============================================================
+// MESSAGE RENDER
+// ============================================================
 function renderMessages() {
     const m = $('#messages');
     m.innerHTML = '';
     const c = currentChat();
     if (!c || c.messages.length === 0) {
-        // Show welcome only if no tokens yet
         const has = !!STORE.get('access');
         if (!has) {
             const wel = document.createElement('div');
@@ -164,19 +166,22 @@ function renderMessages() {
             wel.innerHTML = `
                 <h1>Talk to Claude</h1>
                 <p>Paste your OAuth tokens once. Stored in your browser. Server only proxies.</p>
-                <button class="primary" onclick="window._openSettings()">Add tokens to start</button>
-            `;
+                <button class="primary" onclick="window._openSettings()">Add tokens to start</button>`;
             m.appendChild(wel);
         }
         return;
     }
-    for (const msg of c.messages) renderMessageDOM(msg.role, msg.content);
-    scrollToBottom();
+    for (let i = 0; i < c.messages.length; i++) {
+        renderMessageDOM(c.messages[i].role, c.messages[i].content, i);
+    }
+    scrollToBottom(true);
 }
 
-function renderMessageDOM(role, content) {
+function renderMessageDOM(role, content, index = null) {
     const wrap = document.createElement('div');
     wrap.className = 'msg-wrap ' + role;
+    if (index !== null) wrap.dataset.idx = index;
+
     const msg = document.createElement('div');
     msg.className = 'msg ' + role;
 
@@ -186,40 +191,62 @@ function renderMessageDOM(role, content) {
         const txt = content.filter(b => b.type === 'text').map(b => b.text).join('\n\n');
 
         if (imgs.length) {
-            const wrapImg = document.createElement('div');
-            wrapImg.className = 'images';
+            const wImg = document.createElement('div');
+            wImg.className = 'images';
             for (const im of imgs) {
                 const i = document.createElement('img');
                 i.src = `data:${im.source.media_type};base64,${im.source.data}`;
-                wrapImg.appendChild(i);
+                wImg.appendChild(i);
             }
-            msg.appendChild(wrapImg);
+            msg.appendChild(wImg);
         }
         if (docs.length) {
-            const wrapDoc = document.createElement('div');
-            wrapDoc.className = 'files';
+            const wDoc = document.createElement('div');
+            wDoc.className = 'files';
             for (const d of docs) {
                 const chip = document.createElement('span');
                 chip.className = 'file-chip';
                 chip.textContent = '📄 ' + (d._name || 'document');
-                wrapDoc.appendChild(chip);
+                wDoc.appendChild(chip);
             }
-            msg.appendChild(wrapDoc);
+            msg.appendChild(wDoc);
         }
         if (txt) {
             const t = document.createElement('div');
             if (role === 'assistant') t.innerHTML = renderMarkdown(txt);
             else { t.style.whiteSpace = 'pre-wrap'; t.textContent = txt; }
             msg.appendChild(t);
+            if (role === 'assistant') highlightAndDecorate(t);
         }
     } else {
         if (role === 'assistant') msg.innerHTML = renderMarkdown(content || '');
         else msg.textContent = content || '';
+        if (role === 'assistant') highlightAndDecorate(msg);
     }
 
     wrap.appendChild(msg);
+
+    // Actions for assistant messages
+    if (role === 'assistant') {
+        const actions = document.createElement('div');
+        actions.className = 'msg-actions';
+        const txt = extractMsgText({ role, content });
+        actions.innerHTML = `<button data-act="copy">Copy</button>
+                             <button data-act="regen">↻ Regenerate</button>`;
+        actions.querySelector('[data-act="copy"]').addEventListener('click', () => {
+            copyToClipboard(txt); toast('Copied');
+        });
+        actions.querySelector('[data-act="regen"]').addEventListener('click', () => regenerate());
+        wrap.appendChild(actions);
+    }
+
     $('#messages').appendChild(wrap);
     return msg;
+}
+
+function extractMsgText(m) {
+    if (typeof m.content === 'string') return m.content;
+    return (m.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n\n');
 }
 
 function renderMarkdown(text) {
@@ -230,25 +257,55 @@ function renderMarkdown(text) {
     return text.replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
-function scrollToBottom() {
-    const m = $('#messages');
-    m.scrollTop = m.scrollHeight;
+function highlightAndDecorate(root) {
+    if (window.hljs) {
+        root.querySelectorAll('pre code').forEach(b => {
+            try { hljs.highlightElement(b); } catch {}
+        });
+    }
+    // Add copy button to each pre
+    root.querySelectorAll('pre').forEach(pre => {
+        if (pre.querySelector('.copy-code')) return;
+        const btn = document.createElement('button');
+        btn.className = 'copy-code';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const code = pre.querySelector('code')?.innerText || pre.innerText;
+            copyToClipboard(code);
+            btn.textContent = 'Copied!';
+            setTimeout(() => (btn.textContent = 'Copy'), 1200);
+        });
+        pre.appendChild(btn);
+    });
 }
 
-// ---------- File handling ----------
+let userScrolledUp = false;
+function scrollToBottom(force = false) {
+    const m = $('#messages');
+    if (force || !userScrolledUp) m.scrollTop = m.scrollHeight;
+}
+function setupScrollLock() {
+    const m = $('#messages');
+    m.addEventListener('scroll', () => {
+        userScrolledUp = m.scrollHeight - m.scrollTop - m.clientHeight > 120;
+    }, { passive: true });
+}
+
+// ============================================================
+// FILE HANDLING
+// ============================================================
 async function fileToBase64(file) {
     return new Promise((resolve, reject) => {
         const r = new FileReader();
         r.onerror = reject;
         r.onload = () => {
-            const result = r.result;
-            const idx = result.indexOf(',');
-            resolve(result.slice(idx + 1));
+            const res = r.result;
+            resolve(res.slice(res.indexOf(',') + 1));
         };
         r.readAsDataURL(file);
     });
 }
-
 async function fileToText(file) {
     return new Promise((resolve, reject) => {
         const r = new FileReader();
@@ -258,44 +315,24 @@ async function fileToText(file) {
     });
 }
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024;     // 5 MB per file
-const MAX_TEXT_CHARS = 200_000;             // 200 K chars per text file
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_TEXT_CHARS = 200_000;
 
 async function addAttachment(file) {
-    if (file.size > MAX_FILE_BYTES) {
-        alert(`${file.name}: file too large (max 5 MB)`);
-        return;
-    }
+    if (file.size > MAX_FILE_BYTES) { toast(`${file.name}: too large (max 5 MB)`); return; }
     const mt = file.type || 'application/octet-stream';
     if (mt.startsWith('image/')) {
-        const data = await fileToBase64(file);
-        state.attachments.push({
-            kind: 'image', name: file.name, size: file.size,
-            media_type: mt, data,
-        });
+        state.attachments.push({ kind: 'image', name: file.name, size: file.size, media_type: mt, data: await fileToBase64(file) });
     } else if (mt === 'application/pdf') {
-        const data = await fileToBase64(file);
-        state.attachments.push({
-            kind: 'document', name: file.name, size: file.size,
-            media_type: 'application/pdf', data,
-        });
+        state.attachments.push({ kind: 'document', name: file.name, size: file.size, media_type: 'application/pdf', data: await fileToBase64(file) });
     } else {
-        // text-ish file
         let text = await fileToText(file);
-        if (text.length > MAX_TEXT_CHARS) {
-            text = text.slice(0, MAX_TEXT_CHARS) + '\n\n[…truncated]';
-        }
-        state.attachments.push({
-            kind: 'text', name: file.name, size: file.size, text,
-        });
+        if (text.length > MAX_TEXT_CHARS) text = text.slice(0, MAX_TEXT_CHARS) + '\n\n[…truncated]';
+        state.attachments.push({ kind: 'text', name: file.name, size: file.size, text });
     }
     renderAttachments();
 }
-
-function removeAttachment(idx) {
-    state.attachments.splice(idx, 1);
-    renderAttachments();
-}
+function removeAttachment(i) { state.attachments.splice(i, 1); renderAttachments(); }
 
 function renderAttachments() {
     const el = $('#attachments');
@@ -304,13 +341,11 @@ function renderAttachments() {
         const chip = document.createElement('div');
         chip.className = 'attachment-chip';
         if (a.kind === 'image') {
-            chip.innerHTML = `<img alt=""><span class="filename"></span>
-                <span class="filemeta"></span><button class="remove" title="Remove">×</button>`;
+            chip.innerHTML = `<img alt=""><span class="filename"></span><span class="filemeta"></span><button class="remove">×</button>`;
             chip.querySelector('img').src = `data:${a.media_type};base64,${a.data}`;
         } else {
             const icon = a.kind === 'document' ? '📄' : '📝';
-            chip.innerHTML = `<span>${icon}</span><span class="filename"></span>
-                <span class="filemeta"></span><button class="remove" title="Remove">×</button>`;
+            chip.innerHTML = `<span>${icon}</span><span class="filename"></span><span class="filemeta"></span><button class="remove">×</button>`;
         }
         chip.querySelector('.filename').textContent = a.name;
         chip.querySelector('.filemeta').textContent = humanSize(a.size);
@@ -318,14 +353,12 @@ function renderAttachments() {
         el.appendChild(chip);
     });
 }
-
 function humanSize(b) {
     const u = ['B','KB','MB','GB']; let i = 0;
     while (b > 1024 && i < 3) { b /= 1024; i++; }
     return `${b.toFixed(b < 10 ? 1 : 0)} ${u[i]}`;
 }
 
-// Compose user message content array from text + attachments
 function buildUserContent(text) {
     const parts = [];
     for (const a of state.attachments) {
@@ -341,19 +374,16 @@ function buildUserContent(text) {
     return parts.length === 1 && parts[0].type === 'text' ? text : parts;
 }
 
-// Strip internal fields and outbound to API (removes `_name`)
 function cleanForApi(messages) {
     return messages.map(m => {
         if (typeof m.content === 'string') return { role: m.role, content: m.content };
-        const blocks = m.content.map(b => {
-            if (b.type === 'document') return { type: 'document', source: b.source };
-            return b;
-        });
-        return { role: m.role, content: blocks };
+        return { role: m.role, content: m.content.map(b => b.type === 'document' ? { type: 'document', source: b.source } : b) };
     });
 }
 
-// ---------- Chat ----------
+// ============================================================
+// CHAT (send / stream / stop / regen)
+// ============================================================
 async function sendMessage(text) {
     text = text.trim();
     if (!text && state.attachments.length === 0) return;
@@ -364,35 +394,51 @@ async function sendMessage(text) {
     const userContent = buildUserContent(text);
     chat.messages.push({ role: 'user', content: userContent });
 
-    // Auto-title from first user message
-    if (chat.title === 'New chat') {
-        chat.title = autoTitleFromMessage(text || chat.messages.find(m => true)?.content?.find?.(b => b.type === 'text')?.text || 'Chat');
-    }
+    if (chat.title === 'New chat') chat.title = autoTitleFromMessage(text || 'Chat');
     chat.updated = Date.now();
     state.attachments = [];
     renderAttachments();
 
-    // Render
     $('#welcome')?.remove();
     renderMessageDOM('user', userContent);
+    await streamAndAppendAssistant();
+}
+
+async function regenerate() {
+    if (state.streaming) return;
+    const chat = currentChat();
+    if (!chat || chat.messages.length === 0) return;
+    // Drop last assistant message; keep last user message
+    if (chat.messages[chat.messages.length - 1].role === 'assistant') {
+        chat.messages.pop();
+    }
+    saveChats();
+    renderMessages();
+    await streamAndAppendAssistant();
+}
+
+async function streamAndAppendAssistant() {
+    const chat = currentChat();
     const assistantEl = renderMessageDOM('assistant', '');
     assistantEl.classList.add('typing');
-    scrollToBottom();
+    scrollToBottom(true);
 
     state.streaming = true;
+    state.abortCtl = new AbortController();
+    setStopVisible(true);
     $('#send').disabled = true;
     $('#input').value = '';
     autoResize();
 
     let fullText = '';
-    state.abortCtl = new AbortController();
 
     const doStream = async () => {
         await streamChat({
             messages: cleanForApi(chat.messages),
-            onDelta: (delta) => {
-                fullText += delta;
+            onDelta: (d) => {
+                fullText += d;
                 assistantEl.innerHTML = renderMarkdown(fullText);
+                highlightAndDecorate(assistantEl);
                 assistantEl.classList.add('typing');
                 scrollToBottom();
             },
@@ -407,21 +453,33 @@ async function sendMessage(text) {
         });
     };
 
-    try {
-        await doStream();
-    } catch (e) {
-        if (e.name !== 'AbortError') showError(assistantEl, 0, e.message);
+    try { await doStream(); }
+    catch (e) {
+        if (e.name === 'AbortError') {
+            assistantEl.innerHTML = renderMarkdown(fullText + '\n\n_[stopped]_');
+            highlightAndDecorate(assistantEl);
+        } else showError(assistantEl, 0, e.message);
     } finally {
         assistantEl.classList.remove('typing');
         chat.messages.push({ role: 'assistant', content: fullText });
         chat.updated = Date.now();
         saveChats();
+        renderMessages();      // re-render so action buttons get wired up
         renderSidebar();
         updateHeader();
         state.streaming = false;
+        setStopVisible(false);
         $('#send').disabled = false;
         $('#input').focus();
     }
+}
+
+function stopStreaming() {
+    if (state.abortCtl) state.abortCtl.abort();
+}
+function setStopVisible(v) {
+    $('#stop').hidden = !v;
+    $('#send').hidden = v;
 }
 
 async function streamChat({ messages, onDelta, onError, signal }) {
@@ -433,48 +491,35 @@ async function streamChat({ messages, onDelta, onError, signal }) {
         system: STORE.get('system'),
         messages,
     };
-
     const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal,
     });
-
-    if (!resp.ok) {
-        onError(resp.status, await resp.text());
-        return;
-    }
-
+    if (!resp.ok) { onError(resp.status, await resp.text()); return; }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let currentEvent = null;
-
+    let curEvent = null;
     while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-
         let nl;
         while ((nl = buffer.indexOf('\n')) >= 0) {
             const line = buffer.slice(0, nl);
             buffer = buffer.slice(nl + 1);
-
-            if (line.startsWith('event: ')) {
-                currentEvent = line.slice(7).trim();
-            } else if (line.startsWith('data: ')) {
-                const data = line.slice(6);
+            if (line.startsWith('event: ')) curEvent = line.slice(7).trim();
+            else if (line.startsWith('data: ')) {
                 try {
-                    const j = JSON.parse(data);
-                    if (currentEvent === 'error' || j.error) {
+                    const j = JSON.parse(line.slice(6));
+                    if (curEvent === 'error' || j.error) {
                         onError(j.status || resp.status, JSON.stringify(j));
                         return;
                     }
-                    if (j.type === 'content_block_delta' && j.delta?.text) {
-                        onDelta(j.delta.text);
-                    }
-                } catch {/* ignore */ }
+                    if (j.type === 'content_block_delta' && j.delta?.text) onDelta(j.delta.text);
+                } catch {}
             }
         }
     }
@@ -494,7 +539,7 @@ async function refreshAccessToken() {
             if (j.refresh_token) STORE.set('refresh', j.refresh_token);
             return true;
         }
-    } catch { /* fall through */ }
+    } catch {}
     return false;
 }
 
@@ -509,38 +554,94 @@ function showError(el, status, body) {
     el.textContent = msg;
 }
 
+// ============================================================
+// EXPORT
+// ============================================================
+function exportChat() {
+    const c = currentChat();
+    if (!c || c.messages.length === 0) { toast('Nothing to export'); return; }
+    let md = `# ${c.title}\n\n_${new Date(c.created).toISOString()}_\n\n`;
+    for (const m of c.messages) {
+        const role = m.role === 'user' ? '**You**' : '**Claude**';
+        md += `## ${role}\n\n${extractMsgText(m)}\n\n---\n\n`;
+    }
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = c.title.replace(/[^a-z0-9-_ ]/gi, '_') + '.md';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast('Exported');
+}
+
+// ============================================================
+// UTIL
+// ============================================================
 function autoResize() {
     const t = $('#input');
     t.style.height = 'auto';
-    t.style.height = Math.min(t.scrollHeight, 200) + 'px';
+    t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.3) + 'px';
+}
+async function copyToClipboard(text) {
+    try { await navigator.clipboard.writeText(text); }
+    catch { /* fallback */ const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+}
+let toastTimer;
+function toast(msg) {
+    const el = $('#toast');
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (el.hidden = true), 1800);
 }
 
-// ---------- Drag & drop / paste ----------
+// ============================================================
+// SIDEBAR (mobile toggle + backdrop)
+// ============================================================
+function toggleSidebar() {
+    const sb = $('#sidebar');
+    const collapsed = sb.classList.toggle('collapsed');
+    $('#backdrop').hidden = collapsed || !isMobile();
+}
+function closeSidebarOnMobile() {
+    if (!isMobile()) return;
+    $('#sidebar').classList.add('collapsed');
+    $('#backdrop').hidden = true;
+}
+function initSidebarState() {
+    // Default: collapsed on mobile, open on desktop
+    if (isMobile()) {
+        $('#sidebar').classList.add('collapsed');
+        $('#backdrop').hidden = true;
+    } else {
+        $('#sidebar').classList.remove('collapsed');
+        $('#backdrop').hidden = true;
+    }
+}
+
+// ============================================================
+// DRAG & DROP / PASTE
+// ============================================================
 let dragDepth = 0;
 function setupDropZone() {
     const overlay = $('#drop-overlay');
     window.addEventListener('dragenter', (e) => {
         if (!e.dataTransfer?.types?.includes('Files')) return;
         e.preventDefault();
-        dragDepth++;
-        overlay.hidden = false;
+        dragDepth++; overlay.hidden = false;
     });
     window.addEventListener('dragover', (e) => e.preventDefault());
-    window.addEventListener('dragleave', (e) => {
+    window.addEventListener('dragleave', () => {
         dragDepth = Math.max(0, dragDepth - 1);
         if (dragDepth === 0) overlay.hidden = true;
     });
     window.addEventListener('drop', async (e) => {
         e.preventDefault();
-        dragDepth = 0;
-        overlay.hidden = true;
-        const files = [...(e.dataTransfer?.files || [])];
-        for (const f of files) await addAttachment(f);
+        dragDepth = 0; overlay.hidden = true;
+        for (const f of (e.dataTransfer?.files || [])) await addAttachment(f);
     });
-    // paste images
     window.addEventListener('paste', async (e) => {
-        const items = e.clipboardData?.items || [];
-        for (const it of items) {
+        for (const it of (e.clipboardData?.items || [])) {
             if (it.kind === 'file') {
                 const f = it.getAsFile();
                 if (f) await addAttachment(f);
@@ -549,7 +650,30 @@ function setupDropZone() {
     });
 }
 
-// ---------- Wire up ----------
+// ============================================================
+// KEYBOARD SHORTCUTS
+// ============================================================
+function setupShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Cmd/Ctrl + K — new chat
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault(); newChat();
+        }
+        // Cmd/Ctrl + / — settings
+        if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+            e.preventDefault(); openModal();
+        }
+        // Escape — close modal / sidebar (mobile)
+        if (e.key === 'Escape') {
+            if (!$('#settings-modal').hidden) closeModal();
+            else if (isMobile() && !$('#sidebar').classList.contains('collapsed')) closeSidebarOnMobile();
+        }
+    });
+}
+
+// ============================================================
+// WIRE UP
+// ============================================================
 window._openSettings = openModal;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -557,6 +681,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     if (!state.currentId) newChat();
     else { renderSidebar(); renderMessages(); updateHeader(); }
+    initSidebarState();
 
     $('#new-chat').addEventListener('click', newChat);
     $('#settings-btn').addEventListener('click', openModal);
@@ -564,13 +689,20 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#save-btn').addEventListener('click', saveSettings);
     $('#forget-btn').addEventListener('click', forgetTokens);
     $('#rename-chat-btn').addEventListener('click', renameChat);
-    $('#toggle-sidebar').addEventListener('click', () => $('#sidebar').classList.toggle('collapsed'));
+    $('#export-btn').addEventListener('click', exportChat);
+    $('#toggle-sidebar').addEventListener('click', toggleSidebar);
+    $('#backdrop').addEventListener('click', closeSidebarOnMobile);
+    $('#stop').addEventListener('click', stopStreaming);
 
     $('#settings-modal').addEventListener('click', (e) => {
         if (e.target.id === 'settings-modal') closeModal();
     });
 
     $('#model').addEventListener('change', (e) => STORE.set('model', e.target.value));
+    $('#search').addEventListener('input', (e) => {
+        state.searchTerm = e.target.value;
+        renderSidebar();
+    });
 
     $('#file-input').addEventListener('change', async (e) => {
         for (const f of e.target.files) await addAttachment(f);
@@ -579,7 +711,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('#input').addEventListener('input', autoResize);
     $('#input').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && !isMobile()) {
             e.preventDefault();
             sendMessage($('#input').value);
         }
@@ -590,4 +722,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     setupDropZone();
+    setupScrollLock();
+    setupShortcuts();
+
+    // Re-eval sidebar state on resize
+    window.addEventListener('resize', () => {
+        if (!isMobile()) {
+            $('#sidebar').classList.remove('collapsed');
+            $('#backdrop').hidden = true;
+        }
+    });
 });
