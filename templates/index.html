@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>claude-chat</title>
+<link rel="stylesheet" href="/static/style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <span class="name">claude-chat</span>
+    </div>
+    <div class="actions">
+      <select id="model">
+        <option value="claude-opus-4-7">Opus 4.7</option>
+        <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+        <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+      </select>
+      <button id="settings-btn" title="Settings">⚙</button>
+      <button id="clear-btn" title="Clear chat">⌫</button>
+    </div>
+  </header>
+
+  <main id="messages">
+    <div class="welcome" id="welcome">
+      <h1>Talk to Claude</h1>
+      <p>Paste your OAuth tokens once. Stored in your browser. Server only proxies.</p>
+      <button id="open-settings" class="primary">Add tokens to start</button>
+    </div>
+  </main>
+
+  <form id="composer">
+    <div class="input-wrap">
+      <textarea id="input" rows="1" placeholder="Message Claude…" disabled></textarea>
+      <button type="submit" id="send" disabled>↑</button>
+    </div>
+    <div class="hint">Enter to send · Shift+Enter for newline</div>
+  </form>
+
+  <!-- Settings modal -->
+  <div class="modal" id="settings-modal" hidden>
+    <div class="modal-card">
+      <h2>Settings</h2>
+      <p class="muted">Tokens are stored in your browser's localStorage. They are sent to this server only to forward to api.anthropic.com.</p>
+
+      <label>Access token <span class="muted">(sk-ant-oat01-…)</span></label>
+      <input type="password" id="access-token" autocomplete="off" spellcheck="false" />
+
+      <label>Refresh token <span class="muted">(sk-ant-ort01-…)</span></label>
+      <input type="password" id="refresh-token" autocomplete="off" spellcheck="false" />
+
+      <label>System prompt <span class="muted">(optional)</span></label>
+      <textarea id="system-prompt" rows="3" placeholder="You are a helpful assistant…"></textarea>
+
+      <div class="row">
+        <label class="inline">Temperature
+          <input type="number" id="temperature" min="0" max="1" step="0.1" value="1" />
+        </label>
+        <label class="inline">Max tokens
+          <input type="number" id="max-tokens" min="256" max="8192" step="256" value="8192" />
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button id="forget-btn" class="ghost">Forget tokens</button>
+        <button id="save-btn" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
