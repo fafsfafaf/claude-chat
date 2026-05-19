@@ -54,9 +54,15 @@ def chat():
         "anthropic-beta": "oauth-2025-04-20",
         "Content-Type": "application/json",
         "User-Agent": "claude-chat/1.0",
+        # Refuse gzip from Anthropic — gzip + SSE is a recipe for mobile-proxy buffering.
+        "Accept-Encoding": "identity",
     }
 
     def stream():
+        # First chunk fires immediately so the browser's fetch reader opens
+        # before Anthropic's first byte. Without this, some Android browsers
+        # don't yield from response.body.getReader() for several seconds.
+        yield ": open\n\n"
         try:
             with requests.post(
                 ANTHROPIC_MESSAGES_URL,
@@ -69,16 +75,24 @@ def chat():
                     err = r.text
                     yield f"event: error\ndata: {json.dumps({'status': r.status_code, 'body': err})}\n\n"
                     return
-                for raw in r.iter_lines():
-                    if raw:
-                        # Anthropic already sends SSE-formatted lines (event: ... / data: ...).
-                        yield raw.decode("utf-8") + "\n"
-                    else:
-                        yield "\n"
+                # iter_content with small chunks forwards data the instant the upstream
+                # flushes, instead of waiting for line boundaries. This is what fixes
+                # the "messages don't load on Android" case — mobile data proxies and
+                # Android Chrome both buffer line-based streams aggressively.
+                for chunk in r.iter_content(chunk_size=64, decode_unicode=False):
+                    if chunk:
+                        yield chunk
         except requests.RequestException as e:
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
-    return Response(stream(), mimetype="text/event-stream")
+    resp = Response(stream(), mimetype="text/event-stream", direct_passthrough=True)
+    # Headers that disable buffering across every intermediary that might be in the path:
+    # browsers, mobile carrier proxies, Cloudflare, nginx, gunicorn, …
+    resp.headers["Cache-Control"] = "no-cache, no-transform"
+    resp.headers["X-Accel-Buffering"] = "no"        # nginx
+    resp.headers["Connection"] = "keep-alive"
+    resp.headers["Content-Encoding"] = "identity"   # tell the browser: don't expect gzip
+    return resp
 
 
 @app.route("/api/refresh", methods=["POST"])
