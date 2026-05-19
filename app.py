@@ -62,7 +62,8 @@ def chat():
         # First chunk fires immediately so the browser's fetch reader opens
         # before Anthropic's first byte. Without this, some Android browsers
         # don't yield from response.body.getReader() for several seconds.
-        yield ": open\n\n"
+        # NOTE: every yield must be bytes when direct_passthrough=True.
+        yield b": open\n\n"
         try:
             with requests.post(
                 ANTHROPIC_MESSAGES_URL,
@@ -73,7 +74,8 @@ def chat():
             ) as r:
                 if r.status_code != 200:
                     err = r.text
-                    yield f"event: error\ndata: {json.dumps({'status': r.status_code, 'body': err})}\n\n"
+                    payload_err = json.dumps({"status": r.status_code, "body": err})
+                    yield f"event: error\ndata: {payload_err}\n\n".encode("utf-8")
                     return
                 # iter_content with small chunks forwards data the instant the upstream
                 # flushes, instead of waiting for line boundaries. This is what fixes
@@ -83,7 +85,7 @@ def chat():
                     if chunk:
                         yield chunk
         except requests.RequestException as e:
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
 
     resp = Response(stream(), mimetype="text/event-stream", direct_passthrough=True)
     # Headers that disable buffering across every intermediary that might be in the path:
